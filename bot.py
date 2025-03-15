@@ -3,6 +3,7 @@ import telebot
 import logging
 import time
 from random import choice
+from threading import Thread
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 # Проверка наличия библиотеки schedule
@@ -16,7 +17,7 @@ except ImportError:
 TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '7814161895:AAECBrxkI8tB_KqU5j9b_MBJgncdhODWf3c')
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # Создаем экземпляр бота
@@ -30,12 +31,12 @@ challenges = [
     "Снять майку и 20 раз отжаться",
     "Выпить 2 шота водки",
     "Выпить стакан пива залпом",
-    "Поменятся одеждой полностью с соседом слева (трусы не включая) до следующего челленджа",
+    "Поменяться одеждой полностью с соседом слева (трусы не включая) до следующего челленджа",
     "Каждый смешивает в стакан свой любимый алкоголь, а ты пьешь",
-    "Придумать анекдот используя слова которые назовут другие участники (по 1 слову от каждого)",
-    "Продай что нибудь какому нибудь рандому",
+    "Придумать анекдот, используя слова, которые назовут другие участники (по 1 слову от каждого)",
+    "Продай что-нибудь какому-нибудь рандому",
     "Рерролл и делай этот челлендж без рук",
-    "СпетьКрикнуть «аааааауууууф»",
+    "Спеть/крикнуть «аааааауууууф»",
     "Выпить бокал пива через трубочку",
     "Разливать напитки для всех до следующего челленджа",
     "Произнести тост",
@@ -57,13 +58,13 @@ def get_random_challenge(player):
     return challenge
 
 # Функция для отправки челленджей всем игрокам
-def send_challenges():
+def send_challenges(chat_id):
     for player in players:
         challenge = get_random_challenge(player)
         bot.send_message(chat_id, f"{player}, ты должен {challenge}", reply_markup=create_reroll_button(player))
 
 # Запуск ежечасной отправки
-schedule.every().hour.do(send_challenges)
+schedule.every().hour.do(lambda: send_challenges(chat_id))
 
 # Функция для запуска расписания
 def run_scheduler():
@@ -89,20 +90,21 @@ def create_reroll_button(player):
 # Обработка команды /start
 @bot.message_handler(commands=['start'])
 def start(message):
-    global chat_id
     chat_id = message.chat.id
     bot.send_message(chat_id, "Нажмите кнопку, чтобы начать игру!", reply_markup=create_main_keyboard())
 
 # Обработка текстовых сообщений
 @bot.message_handler(func=lambda message: True)
 def handle_text(message):
-    global chat_id
     chat_id = message.chat.id
 
     if message.text == "Старт":
         bot.send_message(chat_id, "Игра началась! Каждый час вы будете получать новые челленджи.")
-        send_challenges()  # Отправляем первую порцию челленджей
-        run_scheduler()
+        send_challenges(chat_id)  # Отправляем первую порцию челленджей
+        # Запускаем scheduler в отдельном потоке
+        scheduler_thread = Thread(target=run_scheduler)
+        scheduler_thread.daemon = True
+        scheduler_thread.start()
     elif message.text == "Перезагрузить бота":
         global completed_challenges
         # Сбрасываем выполненные челленджи
@@ -110,7 +112,9 @@ def handle_text(message):
         # Останавливаем текущий schedule
         schedule.clear()
         # Запускаем schedule заново
-        run_scheduler()
+        scheduler_thread = Thread(target=run_scheduler)
+        scheduler_thread.daemon = True
+        scheduler_thread.start()
         # Отправляем новое сообщение с кнопкой "Старт"
         bot.send_message(chat_id, "Бот перезагружен. Нажмите кнопку, чтобы начать игру!", reply_markup=create_main_keyboard())
     else:
@@ -127,6 +131,8 @@ def reroll_challenge(call):
 if __name__ == "__main__":
     try:
         logger.info("Бот запущен.")
+        # Убедимся, что вебхук отключён
+        bot.remove_webhook()
         bot.polling(none_stop=True)
     except KeyboardInterrupt:
         logger.info("Бот остановлен.")
