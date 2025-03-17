@@ -2,9 +2,12 @@ import os
 import telebot
 import logging
 import time
+import schedule
 from random import choice
 from threading import Thread
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+import requests
+from requests.exceptions import RequestException
 
 # Проверка наличия библиотеки schedule
 try:
@@ -61,15 +64,19 @@ def get_random_challenge(player):
 def send_challenges(chat_id):
     for player in players:
         challenge = get_random_challenge(player)
-        bot.send_message(chat_id, f"{player}, ты должен {challenge}", reply_markup=create_reroll_button(player))
-
-# Запуск ежечасной отправки
-schedule.every().hour.do(lambda: send_challenges(chat_id))
+        try:
+            bot.send_message(chat_id, f"{player}, ты должен {challenge}", reply_markup=create_reroll_button(player))
+            time.sleep(1)  # Задержка между запросами
+        except Exception as e:
+            logger.error(f"Ошибка при отправке сообщения: {e}")
 
 # Функция для запуска расписания
 def run_scheduler():
     while True:
-        schedule.run_pending()
+        try:
+            schedule.run_pending()
+        except Exception as e:
+            logger.error(f"Ошибка в расписании: {e}")
         time.sleep(1)
 
 # Создаем клавиатуру с кнопками "Старт" и "Перезагрузить бота"
@@ -133,7 +140,8 @@ if __name__ == "__main__":
         logger.info("Бот запущен.")
         # Убедимся, что вебхук отключён
         bot.remove_webhook()
-        bot.polling(none_stop=True)
+        # Увеличиваем тайм-аут для запросов
+        bot.polling(none_stop=True, timeout=60)
     except KeyboardInterrupt:
         logger.info("Бот остановлен.")
     except Exception as e:
